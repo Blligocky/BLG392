@@ -1,6 +1,6 @@
 # BLG392
-| Labs  |
-|:------:|
+| Labs    |
+|:-------:|
 |[Lab1](Lab1/README.md) |
 |[Lab2](Lab2/README.md) |
 |[Lab3](Lab3/README.md) |
