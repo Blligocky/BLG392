@@ -14,7 +14,7 @@ for i in part2:
 print ("All numbers added togther are: ", ans2)
 
 # Part 3, add together even numbers
-part3 = [146, 875, 911, 83, 81, 439, 44, 5, 46, 76, 61, 68, 1, 14, 38, 1, 14, 38, 26, 21]
+part3 = [146, 875, 911, 83, 81, 439, 44, 5, 46, 76, 61, 68, 1, 14, 38, 26, 21]
 ans3 = 0
 x = 0
 y = -1 
