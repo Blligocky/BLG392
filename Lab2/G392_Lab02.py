@@ -1,5 +1,5 @@
 # Part 1, multiply list items together
-part1 = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 2048, 4096]
+part1 = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096]
 ans1 = 1
 for i in part1:
     ans1 *= i
