@@ -1,0 +1,593 @@
+# Import necessary libraries 
+import arcpy
+import math
+import os
+
+# Set a counter to use for loops 
+count = 0
+
+# Set the workspace
+arcpy.env.workspace = r"C:\\Users\\Bendi\\OneDrive\\Documents\\G392\\GroupProject"
+
+# Set the coordinate system, WGS 1984
+coordSyst = arcpy.SpatialReference(4326)
+
+# Set the oil spill layer name
+point_layer_name = "OilSpillPointLayer"
+oil_spill_layer_path = arcpy.env.workspace + "\\" + point_layer_name
+arcpy.env.overwriteOutput = True
+
+# Get the user input for the point location
+x_coord_str = input("Enter X coordinate: ")
+y_coord_str = input("Enter Y coordinate: ")
+
+# Convert input to float
+x_coord = float(x_coord_str)
+y_coord = float(y_coord_str)
+
+# Create a point object
+point_geometry = arcpy.PointGeometry(arcpy.Point(x_coord, y_coord), coordSyst)
+
+# Check if it exists
+if not arcpy.Exists(oil_spill_layer_path):
+    # Create a new point layer if it doesn't exist
+    arcpy.CreateFeatureclass_management(arcpy.env.workspace, point_layer_name, "POINT", spatial_reference = coordSyst)
+
+    # Open an insert cursor and insert the new point
+    with arcpy.da.InsertCursor(oil_spill_layer_path, ["SHAPE@"]) as cursor:
+        cursor.insertRow([point_geometry])
+
+# Specify the area of interest/project boundary
+projBoundPath = r"C:\\Users\\Bendi\\OneDrive\\Documents\\G392\\GroupProject\\c200KMBuffer_ExportFeatures_ExportFeatures.shp"
+
+# Check if the point is within the polygon layer
+arcpy.MakeFeatureLayer_management(oil_spill_layer_path, "point_layer")
+arcpy.SelectLayerByLocation_management("point_layer", "WITHIN", projBoundPath)
+
+# Get the count of selected points
+selected_count = arcpy.GetCount_management(oil_spill_layer_path).getOutput(0)
+
+# Check if point is within the polygon
+if int(selected_count) > 0:
+    # print("The point is within the polygon.")
+    count += 0
+else:
+    print("The point is not within the polygon.")
+    count += 1
+
+# Take user input of the amount spilled in gallons
+if count == 0:
+    print("What amount of oil was spilled? Please enter the amount in gallons.")
+    amount = input()
+    amount = float(amount)
+
+    if amount > 0:
+        count += 0
+        # Specify the output buffer layer path
+        buffer_layer_path = arcpy.env.workspace + "\\BufferLayer"
+        arcpy.env.overwriteOutput = True
+        
+        # Determine buffer and convert buffer distance to degrees
+        buffer_distance_miles = .4  
+        buffer_distance_degrees = buffer_distance_miles / 69  # 1 degree is approximately 69 miles
+
+        # Determine the buffer distance based on the amount spilled
+        buffer_distance_degrees *= amount
+        
+        # Create a buffer around the point
+        arcpy.Buffer_analysis(oil_spill_layer_path, buffer_layer_path, buffer_distance_degrees)
+
+    else:
+        count += 1
+        # 0 gallons spilled
+        print("You reported that no oil was spilled, therefore there is no risk.")
+
+if count == 0:
+# Code to assign risk value to the population affected
+        arcpy.MakeFeatureLayer_management("County.shp", "county_layer")
+        
+        # Get the count of selected polygons
+        selected_count = arcpy.GetCount_management("county_layer").getOutput(0)
+
+        Pop_Risk_list = []
+
+        # Specify the paths to the feature layers
+        county_path = r"C:\Users\Bendi\OneDrive\Documents\G392\GroupProject\County.shp"
+        buffer_path = r"C:\Users\Bendi\OneDrive\Documents\G392\GroupProject\BufferLayer.shp"
+
+        # Spatial join to identify features that intersect
+        output_join = r"C:\Users\Bendi\OneDrive\Documents\G392\GroupProject\SpatialJoinOutput.shp"
+        arcpy.env.overwriteOutput = True
+        arcpy.analysis.SpatialJoin(target_features=county_path, join_features=buffer_path, out_feature_class=output_join)
+
+        # Use the Near tool to calculate distances
+        near_table = r"C:\Users\Bendi\OneDrive\Documents\G392\GroupProject\NearTable.dbf"
+        arcpy.analysis.Near(county_path, buffer_path, search_radius="", location="NO_LOCATION", angle="NO_ANGLE", method="PLANAR")
+
+        # Use the update cursor to update the Pop_Risk field based on the Near and SpatialJoin results
+        with arcpy.da.UpdateCursor(output_join, ["CNTY_NM", "Population", "Pop_Risk", "NEAR_DIST"]) as cursor:
+            for row in cursor:
+                try:
+                    population = row[1]
+                    near_distance = row[3]
+                    pop_risk = 0  
+
+                    # Check for intersection with the buffer layer
+                    if near_distance == 0:
+                        pop_risk = 10  
+                        # Update the Pop_Risk field
+                        row[2] = pop_risk
+                        cursor.updateRow(row)
+
+                        # Append the risk value to the list
+                        Pop_Risk_list.append(pop_risk)
+                    else:
+                        # Assign risk based on both population and distance
+                        if population <= 490:
+                            pop_risk += 1
+                            if near_distance == 0:
+                                pop_risk = 10
+                            elif 0 < near_distance <= 30369.802698:
+                                pop_risk += 1.5
+                            elif 30369.802698 < near_distance <= 91454.6455385:
+                                pop_risk += 0.5
+                            elif near_distance > 179245.014931:
+                                pop_risk += 0.2
+                        elif 491 <= population <= 860:
+                            pop_risk += 2
+                            if near_distance == 0:
+                                pop_risk = 10
+                            elif 0 < near_distance <= 30369.802698:
+                                pop_risk += 1.5
+                            elif 30369.802698 < near_distance <= 91454.6455385:
+                                pop_risk += 0.5
+                            elif near_distance > 179245.014931:
+                                pop_risk += 0.2
+                        elif 861 <= population <= 1610:
+                            pop_risk += 3
+                            if near_distance == 0:
+                                pop_risk = 10
+                            elif 0 < near_distance <= 30369.802698:
+                                pop_risk += 1.5
+                            elif 30369.802698 < near_distance <= 91454.6455385:
+                                pop_risk += 0.5
+                            elif near_distance > 179245.014931:
+                                pop_risk += 0.2
+                        elif 1611 <= population <= 2995:
+                            pop_risk += 4
+                            if near_distance == 0:
+                                pop_risk = 10
+                            elif 0 < near_distance <= 30369.802698:
+                                pop_risk += 1.5
+                            elif 30369.802698 < near_distance <= 91454.6455385:
+                                pop_risk += 0.5
+                            elif near_distance > 179245.014931:
+                                pop_risk += 0.2
+                        elif 2296 <= population <= 5003:
+                            pop_risk += 5
+                            if near_distance == 0:
+                                pop_risk = 10
+                            elif 0 < near_distance <= 30369.802698:
+                                pop_risk += 1.5
+                            elif 30369.802698 < near_distance <= 91454.6455385:
+                                pop_risk += 0.5
+                            elif near_distance > 179245.014931:
+                                pop_risk += 0.2
+                        elif 5004 <= population <= 7415:
+                            pop_risk += 6
+                            if near_distance == 0:
+                                pop_risk = 10
+                            elif 0 < near_distance <= 30369.802698:
+                                pop_risk += 1.5
+                            elif 30369.802698 < near_distance <= 91454.6455385:
+                                pop_risk += 0.5
+                            elif near_distance > 179245.014931:
+                                pop_risk += 0.2
+                        elif 7416 <= population <= 13498:
+                            pop_risk += 7
+                            if near_distance == 0:
+                                pop_risk = 10
+                            elif 0 < near_distance <= 30369.802698:
+                                pop_risk += 1.5
+                            elif 30369.802698 < near_distance <= 91454.6455385:
+                                pop_risk += 0.5
+                            elif near_distance > 179245.014931:
+                                pop_risk += 0.2
+                        elif 13499 <= population <= 26170:
+                            pop_risk += 8
+                            if near_distance == 0:
+                                pop_risk = 10
+                            elif 0 < near_distance <= 30369.802698:
+                                pop_risk += 1.5
+                            elif 30369.802698 < near_distance <= 91454.6455385:
+                                pop_risk += 0.5
+                            elif near_distance > 179245.014931:
+                                pop_risk += 0.2
+                        elif 26171 <= population <= 46665:
+                            pop_risk += 9
+                            if near_distance == 0:
+                                pop_risk = 10
+                            elif 0 < near_distance <= 30369.802698:
+                                pop_risk += 1.5
+                            elif 30369.802698 < near_distance <= 91454.6455385:
+                                pop_risk += 0.5
+                            elif near_distance > 179245.014931:
+                                pop_risk += 0.2
+                        else:
+                            pop_risk += 10
+
+                    if pop_risk > 10:
+                        pop_risk = 10
+
+                    # Update the Pop_Risk field
+                    row[2] = pop_risk
+                    cursor.updateRow(row)
+
+                    # Append the risk value to the list
+                    Pop_Risk_list.append(pop_risk)
+
+                except Exception as e:
+                    print("Error:", e)
+
+        # Average the population risk
+        lenPop = len(Pop_Risk_list)
+        if lenPop == 0:
+            lenPop += 1
+        average_pop_risk = round(sum(Pop_Risk_list) / lenPop, 1)
+        print("Average Population Risk: ", average_pop_risk)
+
+
+
+
+# Code to assign risk value to the wildlife affected
+        # Habitat file paths
+        Sanderling = r"C:\\Users\\Bendi\\OneDrive\\Documents\\G392\\GroupProject\\Sanderling_Habitat_ExportFeatures.shp"
+        # Add the new field to the shapefile
+        arcpy.AddField_management(Sanderling, "Risk", "DOUBLE")
+        Shrimp = r"C:\\Users\\Bendi\\OneDrive\\Documents\\G392\\GroupProject\\Shrimp.shp"
+        arcpy.AddField_management(Shrimp, "Risk", "DOUBLE")
+        Turtles = r"C:\\Users\\Bendi\\OneDrive\\Documents\\G392\\GroupProject\\Leatherback_Turtles_ExportFeatures.shp"
+        arcpy.AddField_management(Turtles, "Risk", "DOUBLE")
+
+        # Create layers from habitat files
+        arcpy.MakeFeatureLayer_management(Sanderling, "Sanderling_Habitat")
+        arcpy.MakeFeatureLayer_management(Shrimp, "Shrimp_Habitat")
+        arcpy.MakeFeatureLayer_management(Turtles, "Turtles_Habitat")
+
+        # Check for intersection of each layer and assign risk based on how much area is impacted
+        # Determine what is intersected
+        SaI = arcpy.SelectLayerByLocation_management("Sanderling_Habitat", "INTERSECT", buffer_layer_path)
+        ShI = arcpy.SelectLayerByLocation_management("Shrimp_Habitat", "INTERSECT", buffer_layer_path)
+        TI = arcpy.SelectLayerByLocation_management("Turtles_Habitat", "INTERSECT", buffer_layer_path)
+
+        # Get the areas of the habitat layers
+        sa_area = sum([row[0] for row in arcpy.da.SearchCursor(Sanderling, ["SHAPE@AREA"])])
+        shrimp_area = sum([row[0] for row in arcpy.da.SearchCursor(Shrimp, ["SHAPE@AREA"])])
+        turtles_area = sum([row[0] for row in arcpy.da.SearchCursor(Turtles, ["SHAPE@AREA"])])
+
+        # Set the path for the intersection layer
+        intersection_layer_path = arcpy.env.workspace + "\\IntersectionLayer"
+        arcpy.env.overwriteOutput = True
+
+        # Perform the intersection
+        arcpy.Intersect_analysis([Sanderling, Shrimp, Turtles, buffer_layer_path], intersection_layer_path)
+
+        # Get the area of the intersection layer
+        intersection_area = sum([row[0] for row in arcpy.da.SearchCursor(intersection_layer_path, ["SHAPE@AREA"])])
+
+        # Calculate the percentage of overlap for each habitat layer
+        saOP = (intersection_area / sa_area) * 100
+        shOP = (intersection_area / shrimp_area) * 100
+        tOP = (intersection_area / turtles_area) * 100
+
+        sa_risk = None
+        sh_risk = None 
+        t_risk = None 
+
+        Sanderling_Risk = None
+        Shrimp_Risk = None
+        Turtle_Risk = None
+
+        # Check if the field exists: Sanderling
+        field_exists = False
+        field_list = arcpy.ListFields("Sanderling_Habitat_ExportFeatures.shp")
+        for field in field_list:
+            if field.name == "Risk":
+                field_exists = True
+                break
+        # If the field doesn't exist, add it
+        if not field_exists:
+            arcpy.AddField_management("Sanderling_Habitat_ExportFeatures.shp", "Risk", "DOUBLE")
+
+        with arcpy.da.UpdateCursor("Sanderling_Habitat_ExportFeatures", ["Risk"]) as cursor:
+            for row in cursor:
+                try: 
+                    # Assign risk based on overlap percentages
+                    if saOP >= 50:
+                        sa_risk = 10
+                    elif 50 > saOP >= 40:
+                        sa_risk = 8
+                    elif 40 > saOP >= 30:
+                        sa_risk = 6
+                    elif 30 > saOP >= 20:
+                        sa_risk = 4
+                    elif saOP <= 20:
+                        sa_risk = 2
+
+                    # Update the Risk field
+                    row[0] = sa_risk
+                    Sanderling_Risk = sa_risk
+                    cursor.updateRow(row)
+
+                except Exception as e:
+                    print("Error", e)
+
+        # Check if the field exists: Shrimp
+        field_exists = False
+        field_list = arcpy.ListFields("Shrimp.shp")
+        for field in field_list:
+            if field.name == "Risk":
+                field_exists = True
+                break
+        # If the field doesn't exist, add it
+        if not field_exists:
+            arcpy.AddField_management("Shrimp.shp", "Risk", "DOUBLE")
+        with arcpy.da.UpdateCursor("Shrimp.shp", ["Risk"]) as cursor:
+                    for row in cursor:
+                        try: 
+                            if shOP >= 50:
+                                sh_risk = 10
+                            elif 50 > shOP >= 40:
+                                sh_risk = 8
+                            elif 40 > shOP >= 30:
+                                sh_risk = 6
+                            elif 30 > shOP >= 20:
+                                sh_risk = 4
+                            elif shOP <= 20:
+                                sh_risk = 2
+                           
+                            # Update the Risk field
+                            row[0] = sh_risk
+                            Shrimp_Risk = sh_risk
+                            cursor.updateRow(row)
+
+                        except Exception as e:
+                            print("Error", e)
+
+
+        # Check if the field exists: Turtles
+        field_exists = False
+        field_list = arcpy.ListFields("Leatherback_Turtles_ExportFeatures.shp")
+        for field in field_list:
+            if field.name == "Risk":
+                field_exists = True
+                break
+        # If the field doesn't exist, add it
+        if not field_exists:
+            arcpy.AddField_management("Leatherback_Turtles_ExportFeatures.shp", "Risk", "DOUBLE")
+        with arcpy.da.UpdateCursor("Leatherback_Turtles_ExportFeatures.shp", ["Risk"]) as cursor:
+                    for row in cursor:
+                        try: 
+                            if tOP >= 50:
+                                t_risk = 10
+                            elif 50 > tOP >= 40:
+                                t_risk = 8
+                            elif 40 > tOP >= 30:
+                                t_risk = 6
+                            elif 30 > tOP >= 20:
+                                t_risk = 4
+                            elif tOP <= 20:
+                                t_risk = 2
+
+                            # Update the Risk field
+                            row[0] = t_risk
+                            Turtle_Risk = t_risk
+                            cursor.updateRow(row)
+
+                        except Exception as e:
+                            print("Error", e)
+                     
+
+        # Calculate the average wildlife risk
+        Wildlife_Risk_list = [sa_risk, sh_risk, t_risk]
+        lenWild = len(Wildlife_Risk_list)
+        if lenWild == 0:
+            lenWild += 1
+        average_wildlife_risk = round(sum(Wildlife_Risk_list) / lenWild, 1)
+        print ("Average Wildlife Risk: ", round(average_wildlife_risk, 1))
+
+
+
+        
+# Code to assign risk value to the socioeconomic status of those affected
+        # Get counties within the buffer
+        #arcpy.MakeFeatureLayer_management("County.shp", "county_layer")
+        #arcpy.SelectLayerByLocation_management("county_layer", "INTERSECT", buffer_layer_path)
+            
+        Socio_Risk_list = []
+
+        def tax_bracket(income):
+            # Tax brackets for married filing jointly for 2021 (reversed order)
+            brackets = [
+                (628300, math.inf),
+                (418850, 628300),
+                (329850, 418850),
+                (172750, 329850),
+                (81050, 172750),
+                (19900, 81050),
+                (0, 19900),
+            ]
+
+            # Number tax brackets for risk number
+            for i, (lower, upper) in enumerate(brackets, start=1):
+                if lower <= income <= upper:
+                    return i
+
+        # Average household incomes for Texas Gulf Coastal Counties, from U.S. Census Bureau 2021
+        county_incomes = {
+            "Chambers": 93707,
+            "Cameron": 43057,
+            "Aransas": 51509,
+            "Jefferson": 53614,
+            "Kenedy": 42778,
+            "Brazoria": 87958,
+            "Calhoun": 61887,
+            "Galveston": 79328,
+            "Matagorda": 48566,
+            "Nueces": 59477,
+            "Willacy": 39401
+        }
+
+        # Associate each county with tax bracket risk number
+        county_brackets = {county: tax_bracket(income) for county, income in county_incomes.items()}
+
+        # Iterate over selected counties
+        with arcpy.da.SearchCursor("county_layer", ["CNTY_NM"]) as cursor:
+            for row in cursor:
+                county_name = row[0]
+                # Check if the county name is in the dictionary
+                if county_name in county_brackets:
+                    tax_bracket = county_brackets[county_name]
+                    tax_bracket = tax_bracket * (10/7)
+                    tax_bracket = round(tax_bracket)
+                    #print(f"The risk factor for {county_name} County is {tax_bracket}.")
+                    Socio_Risk_list.append(tax_bracket)
+                else:
+                    # print(f"{county_name} has no associated risk.")
+                    count += 0
+
+        # Average the socioeconomic risk
+        lenSoc = len(Socio_Risk_list)
+        if lenSoc == 0:
+            lenSoc += 1
+        average_socio_risk = round(sum(Socio_Risk_list) / lenSoc, 1)
+        print("Average Socioeconomic Risk: ", average_socio_risk)
+
+        county_name = None
+        Socio_Risk = None
+
+        # Add the "Socio_Risk" field to the county layer
+        arcpy.AddField_management("county_layer", "Socio_Risk", "Double")
+
+        # Use the selection set in the update cursor
+        with arcpy.da.UpdateCursor("county_layer", ["CNTY_NM", "Socio_Risk"]) as cursor:
+            for row in cursor:
+                try: 
+                    county_name = row[0]
+
+                    if county_name == "Chambers":
+                        Socio_Risk = 7
+                    elif county_name == "Cameron":
+                        Socio_Risk = 9
+                    elif county_name == "Aransas":
+                        Socio_Risk = 9
+                    elif county_name == "Jefferson":
+                        Socio_Risk = 9
+                    elif county_name == "Kenedy":
+                        Socio_Risk = 9
+                    elif county_name == "Brazoria":
+                        Socio_Risk = 7
+                    elif county_name == "Calhoun":
+                        Socio_Risk = 9
+                    elif county_name == "Galveston":
+                        Socio_Risk = 9
+                    elif county_name == "Matagorda":
+                        Socio_Risk = 9
+                    elif county_name == "Nueces":
+                        Socio_Risk = 9
+                    elif county_name == "Willacy":
+                        Socio_Risk = 9
+
+                    # Update the Socio_Risk field
+                    row[1] = Socio_Risk
+                    cursor.updateRow(row)
+
+                    # Append the risk value to the list
+                    Socio_Risk_list.append(Socio_Risk)
+
+                except Exception as e:
+                    print("Error:", e)
+
+    # Total Risk    
+        risk_dict = {
+            "Wildlife": average_wildlife_risk,
+            "Population" : average_pop_risk,
+            "Socioeconomic" : average_socio_risk
+        }
+
+        # Convert values to float to allow rounding
+        risk_dict = {key: float(value) for key, value in risk_dict.items()}
+
+        # Outputs for analysis 
+        Total_Risk = round((average_wildlife_risk + average_socio_risk + average_pop_risk)/3, 1)
+        print (f"The risk factor for this spill is: ", Total_Risk)
+        High_Impact = max(risk_dict, key=risk_dict.get)
+        print("The most impacted factor is", High_Impact, "with a risk factor of", risk_dict[High_Impact])
+
+    # Get county risk 
+        with arcpy.da.UpdateCursor("county_layer", ["Pop_Risk", "Socio_Risk", "Risk"]) as cursor:
+            for row in cursor:
+                pop_risk = row[0]
+                socio_risk = row[1]
+                # Calculate the average risk
+                county_risk = (pop_risk + socio_risk) / 2
+                # Update the "Risk" field
+                row[2] = county_risk
+                cursor.updateRow(row)
+
+# Map Output
+        # Set the workspace
+        arcpy.env.workspace = r"C:\Users\Bendi\OneDrive\Documents\G392\GroupProject"
+
+        # Set the map document name
+        map1 = "OilSpillAnalysisMap.aprx"
+        arcpy.env.overwriteOutput = True
+
+        # Specify the folder for the new project file
+        aprx_folder = r"C:\Users\Bendi\OneDrive\Documents\G392\GroupProject"
+
+        # Combine folder and project file paths
+        aprx_path = os.path.join(aprx_folder, map1)
+
+        # Create a new map project by copying an existing one
+        existing_project_path = r"C:\Users\Bendi\OneDrive\Documents\G392\GroupProject\GroupProject.aprx"  # Replace with the path to an existing project
+        arcpy.management.Copy(existing_project_path, aprx_path)
+
+        # Open the newly created project
+        aprx = arcpy.mp.ArcGISProject(aprx_path)
+
+        # Access the first map in the project
+        map1 = aprx.listMaps()[0]
+
+        # Add layers to the map
+        layer1 = arcpy.mp.LayerFile(r"C:\Users\Bendi\OneDrive\Documents\G392\GroupProject\Shrimp.lyrx")
+        layer2 = arcpy.mp.LayerFile(r"C:\Users\Bendi\OneDrive\Documents\G392\GroupProject\Sanderling.lyrx")
+        layer3 = arcpy.mp.LayerFile(r"C:\Users\Bendi\OneDrive\Documents\G392\GroupProject\Leatherback_Turtles.lyrx")
+        layer4 = arcpy.mp.LayerFile(r"C:\Users\Bendi\OneDrive\Documents\G392\BufferLayer.lyrx")
+        layer5 = arcpy.mp.LayerFile(r"C:\Users\Bendi\OneDrive\Documents\G392\OilSpillPointLayer.lyrx")
+        layer6 = arcpy.mp.LayerFile(r"C:\Users\Bendi\OneDrive\Documents\G392\County.lyrx")
+
+        # Add layers to the map
+        map1.addLayer(layer1)
+        map1.addLayer(layer2)
+        map1.addLayer(layer3)
+        map1.addLayer(layer4)
+        map1.addLayer(layer5)
+        map1.addLayer(layer6)
+
+        # Index
+        index_layer1 = 5  
+        index_layer2 = 4
+        index_layer3 = 3 
+        index_layer4 = 1 
+        index_layer5 = 0  
+        index_layer6 = 2
+
+        # Save the project
+        aprx.save()
+
+        # Clean up resources
+        del aprx
+
+else:
+    print("Some of the inputs were incorrect. Cannot calculate risk without valid data.")
